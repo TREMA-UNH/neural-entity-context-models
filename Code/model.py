@@ -68,15 +68,12 @@ class GAT(nn.Module):
         # shape = (N, FIN) * (FIN, NH*FOUT) -> (N, NH, FOUT) where NH - number of heads, FOUT - number
         # of output features 
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
-        #print(nodes_features_proj.shape)
-        #print(self.scoring_fn_target.shape)
 
         nodes_features_proj = self.dropout(nodes_features_proj)
 
         # Attention calculation
 
         scores_target = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
-        #print(scores_target.shape)
 
         for i in range(len(neighbors)):
 
@@ -88,22 +85,20 @@ class GAT(nn.Module):
 
             # This "a" in the paper
             scores_source = (neighbors_features_proj * self.scoring_fn_source).sum(dim=-1)
-            #print(scores_source.shape)
 
             # get the target node for this neighbor (since the targets could belong to different queries for every neighbor)
             # we then repeat the target node shape to match with the number of neighbors i.e. number of source nodes
             # finally we apply leakyrelu to all
             # Then apply softmax to each edge
             # The above process is to calculate the numerator part of the attention
-            #print(scores_target.shape)
+
             selected_scores_target = torch.index_select(scores_target, 0, torch.tensor([i]).to(self.device)).to(self.device)
-            #print(selected_scores_target.shape)
+
             selected_scores_target = selected_scores_target.repeat_interleave(scores_source.shape[0], dim=0)
-            #print(selected_scores_target.shape)
+
             scores_per_edge = self.leakyReLU(scores_source + selected_scores_target)
-            #print(scores_per_edge.shape)
+
             exp_scores_per_edge = scores_per_edge.exp()
-            #print(exp_scores_per_edge.shape)
 
 
             # Calculate the denominator.
@@ -116,9 +111,6 @@ class GAT(nn.Module):
 
             attention_per_edge = attention_per_edge.unsqueeze(-1)
 
-            #print(neighbors_features_proj.shape)
-            #print(str(attention_per_edge.shape)+" "+str(neighbors_features_proj.shape))
-            #print(attention_per_edge)
 
             neighbors[i] = neighbors_features_proj*attention_per_edge
 
@@ -210,16 +202,13 @@ class GRN(nn.Module):
 
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_of_heads, self.num_out_features)
 
-        #nodes_features_proj = self.linear_proj(in_nodes_features)
 
         nodes_features_proj = self.dropout(nodes_features_proj)
 
         for i in range(len(neighbors)):
-            #neighbors_proj = self.linear_proj(neighbors[i]).view(-1, self.num_of_heads, self.num_out_features)
             neighbors_proj = self.linear_proj(neighbors[i])
             neighbors_proj = self.dropout(neighbors_proj)
-            #print(str(neighbors_proj.shape)+" "+str(attention_scores[i].shape))
-            #print(attention_scores[i])
+
             attention_scores[i] = attention_scores[i].unsqueeze(1)
             neighbors[i] = neighbors_proj*attention_scores[i]
 
@@ -228,9 +217,6 @@ class GRN(nn.Module):
             out_nodes = neighbors[i].sum(dim=0)
 
             out_nodes_features_list.append(out_nodes)
-
-        #out_nodes_features = torch.Tensor(in_nodes_features.shape[0], in_nodes_features.shape[1])
-        #print(len(out_nodes_features))
 
         out_nodes_features = torch.cat(out_nodes_features_list, dim=0)
 
@@ -267,18 +253,14 @@ class NeuralECMModel(nn.Module):
     def __init__(self, ent_input_emb_dim: int, 
             query_input_emb_dim: int, 
             para_input_emb_dim: int, 
-            #model: str,
-            #tokenizer: str,
             device: str,
             layer_flag: int):
         super().__init__()
 
         self.device = device
 
-        #self.query_projection = nn.Linear(query_input_emb_dim, 50)
         self.entity_projection = nn.Linear(ent_input_emb_dim, 50)
         self.query_ent_projection = nn.Bilinear(in1_features=50, in2_features=50, out_features=50)
-        #self.para_projection = nn.Linear(para_input_emb_dim, 50)
         self.gnn_layer = None
 
         if layer_flag == 1:
@@ -287,39 +269,11 @@ class NeuralECMModel(nn.Module):
             self.gnn_layer = GAT(50, 50, device)
         self.rank_score = nn.Linear(50, 1)
 
-        #self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
-        #self.config = AutoConfig.from_pretrained(model)
-        #self.bert = AutoModel.from_pretrained(model, config=self.config)
-
-        #for param in self.bert.parameters():
-            #param.requires_grad = False
 
     def forward(self, query_emb: torch.Tensor, entity_emb: torch.Tensor, neighbors: List):
 
-        #print(len(query_text))
-
-        # retrieve the query representation through distilBERT CLS token
-
-        #query_tokens = self.tokenizer.batch_encode_plus(query_text, return_tensors="pt", padding=True, truncation=True)
-        #query_tokens_input_ids = query_tokens.input_ids.to(self.device)
-        #query_tokens_attention_masks = query_tokens.attention_mask.to(self.device)
-
-        #query_output = self.bert(input_ids=query_tokens_input_ids, attention_mask=query_tokens_attention_masks)
-        #query_cls_output = query_output[0][:, 0, :]
-
-        # we project down the query representation to 50 dimension
-
-        #query_embed = self.query_projection(query_cls_output)
-
-        # Next we project down the entity representation to 50 dimension
-
         ent_embed = self.entity_projection(entity_emb)
 
-        #print(torch.squeeze(query_emb).shape)
-        #print(ent_embed.shape)
-        #print(neighbors)
-        #print('=====================================')
-        #break
 
         node_embeddings = self.query_ent_projection(torch.squeeze(query_emb), ent_embed)
 
@@ -338,24 +292,11 @@ class NeuralECMModel(nn.Module):
                 if 'entscore' in data:
                     entity_neighbors_para_score.append(data['entscore'])
 
-            #print(entity_neighbors_para_text)
-
             if len(entity_neighbors_para_text) > 0:
-                #para_text_tokens = self.tokenizer.batch_encode_plus(entity_neighbors_para_text, return_tensors="pt", padding=True, truncation=True)
-                #para_text_tokens_input_ids = para_text_tokens.input_ids.to(self.device)
-                #para_text_attention_masks = para_text_tokens.attention_mask.to(self.device)
-
-                #para_text_output = self.bert(input_ids=para_text_tokens_input_ids, attention_mask=para_text_attention_masks)
-                #para_text_cls_output = para_text_output[0][:, 0, :]
 
                 # We project down the paragraph representation to 50 dimension
 
-                #para_text_embed = self.para_projection(para_text_cls_output)
                 para_text_embed = torch.from_numpy(np.array(entity_neighbors_para_text)).float().to(self.device)
-                #print(para_text_embed.shape)
-                #print(len(entity_neighbors_para_text))
-
-                #node_embed = torch.index_select(node_embeddings, 0, torch.tensor([i]).to(self.device))
 
                 if len(entity_neighbors_para_text) == 1:
 
@@ -363,8 +304,6 @@ class NeuralECMModel(nn.Module):
                 else:
                     para_text_embed = para_text_embed.squeeze()
 
-                #print(para_text_embed.shape)
-                #print(node_embed.shape)
 
                 para_text_embed = torch.cat((para_text_embed, node_embed), 0)
             else:
@@ -372,7 +311,6 @@ class NeuralECMModel(nn.Module):
 
             score_embed = torch.Tensor(entity_neighbors_para_score).to(self.device)
 
-            #print(str(para_text_embed.shape)+" "+str(score_embed.shape))
 
             batch_entity_neighbors_text.append(para_text_embed)
             batch_entity_neighbors_score.append(score_embed)
